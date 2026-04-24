@@ -1,0 +1,267 @@
+{
+  "title": "Agent Memory — Overview",
+  "time_range": { "from": "now-7d", "to": "now" },
+  "panels": [
+
+    {
+      "type": "vis",
+      "id": "kpi-memories",
+      "grid": { "x": 0, "y": 0, "w": 8, "h": 5 },
+      "config": {
+        "type": "metric",
+        "data_source": {
+          "type": "esql",
+          "query": "FROM agent-memory | STATS `Memories` = COUNT(*)"
+        },
+        "metrics": [{ "type": "primary", "column": "Memories" }]
+      }
+    },
+
+    {
+      "type": "vis",
+      "id": "kpi-sessions",
+      "grid": { "x": 8, "y": 0, "w": 8, "h": 5 },
+      "config": {
+        "type": "metric",
+        "data_source": {
+          "type": "esql",
+          "query": "FROM agent-sessions | STATS `Sessions` = COUNT(*)"
+        },
+        "metrics": [{ "type": "primary", "column": "Sessions" }]
+      }
+    },
+
+    {
+      "type": "vis",
+      "id": "kpi-tasks-active",
+      "grid": { "x": 16, "y": 0, "w": 8, "h": 5 },
+      "config": {
+        "type": "metric",
+        "data_source": {
+          "type": "esql",
+          "query": "FROM agent-tasks | WHERE status == \"in_progress\" | STATS `Active Tasks` = COUNT(*)"
+        },
+        "metrics": [{ "type": "primary", "column": "Active Tasks" }]
+      }
+    },
+
+    {
+      "type": "vis",
+      "id": "kpi-tasks-done",
+      "grid": { "x": 24, "y": 0, "w": 8, "h": 5 },
+      "config": {
+        "type": "metric",
+        "data_source": {
+          "type": "esql",
+          "query": "FROM agent-tasks | WHERE status == \"completed\" | STATS `Completed Tasks` = COUNT(*)"
+        },
+        "metrics": [{ "type": "primary", "column": "Completed Tasks" }]
+      }
+    },
+
+    {
+      "type": "vis",
+      "id": "kpi-entities",
+      "grid": { "x": 32, "y": 0, "w": 8, "h": 5 },
+      "config": {
+        "type": "metric",
+        "data_source": {
+          "type": "esql",
+          "query": "FROM *-entities | STATS `Entities` = COUNT(*)"
+        },
+        "metrics": [{ "type": "primary", "column": "Entities" }]
+      }
+    },
+
+    {
+      "type": "vis",
+      "id": "kpi-unread-msgs",
+      "grid": { "x": 40, "y": 0, "w": 8, "h": 5 },
+      "config": {
+        "type": "metric",
+        "data_source": {
+          "type": "esql",
+          "query": "FROM agent-messages | WHERE status == \"unread\" | STATS `Unread Messages` = COUNT(*)"
+        },
+        "metrics": [{ "type": "primary", "column": "Unread Messages" }]
+      }
+    },
+
+    {
+      "type": "vis",
+      "id": "ts-sessions",
+      "grid": { "x": 0, "y": 5, "w": 24, "h": 10 },
+      "config": {
+        "type": "xy",
+        "axis": {
+          "x": {
+            "scale": "temporal",
+            "domain": { "type": "fit", "rounding": false },
+            "title": { "visible": false }
+          },
+          "y": { "title": { "visible": false } }
+        },
+        "layers": [
+          {
+            "type": "bar",
+            "data_source": {
+              "type": "esql",
+              "query": "FROM agent-sessions | WHERE timestamp <= ?_tend AND timestamp > ?_tstart | STATS count = COUNT(*) BY BUCKET(timestamp, 75, ?_tstart, ?_tend)"
+            },
+            "x": { "column": "BUCKET(timestamp, 75, ?_tstart, ?_tend)", "label": "timestamp" },
+            "y": [{ "column": "count" }]
+          }
+        ]
+      }
+    },
+
+    {
+      "type": "vis",
+      "id": "ts-memories",
+      "grid": { "x": 24, "y": 5, "w": 24, "h": 10 },
+      "config": {
+        "type": "xy",
+        "axis": {
+          "x": {
+            "scale": "temporal",
+            "domain": { "type": "fit", "rounding": false },
+            "title": { "visible": false }
+          },
+          "y": { "title": { "visible": false } }
+        },
+        "layers": [
+          {
+            "type": "bar",
+            "data_source": {
+              "type": "esql",
+              "query": "FROM agent-memory | WHERE created_at <= ?_tend AND created_at > ?_tstart | STATS count = COUNT(*) BY BUCKET(created_at, 75, ?_tstart, ?_tend)"
+            },
+            "x": { "column": "BUCKET(created_at, 75, ?_tstart, ?_tend)", "label": "created_at" },
+            "y": [{ "column": "count" }]
+          }
+        ]
+      }
+    },
+
+    {
+      "type": "vis",
+      "id": "bar-memory-type",
+      "grid": { "x": 0, "y": 15, "w": 16, "h": 10 },
+      "config": {
+        "type": "xy",
+        "axis": {
+          "x": { "title": { "visible": false } },
+          "y": { "title": { "visible": false } }
+        },
+        "layers": [
+          {
+            "type": "bar",
+            "data_source": {
+              "type": "esql",
+              "query": "FROM agent-memory | STATS count = COUNT(*) BY type | SORT count DESC"
+            },
+            "x": { "column": "type" },
+            "y": [{ "column": "count" }]
+          }
+        ]
+      }
+    },
+
+    {
+      "type": "vis",
+      "id": "bar-entity-type",
+      "grid": { "x": 16, "y": 15, "w": 16, "h": 10 },
+      "config": {
+        "type": "xy",
+        "axis": {
+          "x": { "title": { "visible": false } },
+          "y": { "title": { "visible": false } }
+        },
+        "layers": [
+          {
+            "type": "bar",
+            "data_source": {
+              "type": "esql",
+              "query": "FROM *-entities | STATS count = COUNT(*) BY entity_type | SORT count DESC"
+            },
+            "x": { "column": "entity_type" },
+            "y": [{ "column": "count" }]
+          }
+        ]
+      }
+    },
+
+    {
+      "type": "vis",
+      "id": "bar-task-status",
+      "grid": { "x": 32, "y": 15, "w": 16, "h": 10 },
+      "config": {
+        "type": "xy",
+        "axis": {
+          "x": { "title": { "visible": false } },
+          "y": { "title": { "visible": false } }
+        },
+        "layers": [
+          {
+            "type": "bar",
+            "data_source": {
+              "type": "esql",
+              "query": "FROM agent-tasks | STATS count = COUNT(*) BY status | SORT count DESC"
+            },
+            "x": { "column": "status" },
+            "y": [{ "column": "count" }]
+          }
+        ]
+      }
+    },
+
+    {
+      "type": "vis",
+      "id": "bar-memory-agent",
+      "grid": { "x": 0, "y": 25, "w": 24, "h": 10 },
+      "config": {
+        "type": "xy",
+        "axis": {
+          "x": { "title": { "visible": false } },
+          "y": { "title": { "visible": false } }
+        },
+        "layers": [
+          {
+            "type": "bar",
+            "data_source": {
+              "type": "esql",
+              "query": "FROM agent-memory | STATS count = COUNT(*) BY agent | SORT count DESC"
+            },
+            "x": { "column": "agent" },
+            "y": [{ "column": "count" }]
+          }
+        ]
+      }
+    },
+
+    {
+      "type": "vis",
+      "id": "bar-session-action",
+      "grid": { "x": 24, "y": 25, "w": 24, "h": 10 },
+      "config": {
+        "type": "xy",
+        "axis": {
+          "x": { "title": { "visible": false } },
+          "y": { "title": { "visible": false } }
+        },
+        "layers": [
+          {
+            "type": "bar",
+            "data_source": {
+              "type": "esql",
+              "query": "FROM agent-sessions | STATS count = COUNT(*) BY action | SORT count DESC | LIMIT 10"
+            },
+            "x": { "column": "action" },
+            "y": [{ "column": "count" }]
+          }
+        ]
+      }
+    }
+
+  ]
+}

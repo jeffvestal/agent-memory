@@ -263,18 +263,20 @@ if [[ -z "${KIBANA_URL:-}" ]]; then
   warn "KIBANA_URL not set — skipping dashboard import"
   echo "  Set KIBANA_URL in .env and re-run to import dashboards"
 else
-  DASHBOARD_FILE="$INSTALL_DIR/setup/dashboards/agent-memory.ndjson"
+  DASHBOARD_FILE="$INSTALL_DIR/setup/dashboards/agent-memory-overview.json"
   if [[ -f "$DASHBOARD_FILE" ]]; then
-    echo -n "  Importing dashboards: "
-    result="$(curl -s -X POST "${KIBANA_URL}/api/saved_objects/_import?overwrite=true" \
+    echo -n "  Creating dashboard: "
+    result="$(curl -s -X POST "${KIBANA_URL}/api/dashboards" \
       -H "Authorization: ApiKey ${BRIDGE_ES_API_KEY}" \
       -H "kbn-xsrf: true" \
-      -F "file=@${DASHBOARD_FILE}" 2>/dev/null || echo '{"success":false}')"
-    if echo "$result" | jq -e '.success == true' > /dev/null 2>&1; then
-      count="$(echo "$result" | jq -r '.successCount // 0')"
-      ok "$count objects imported"
+      -H "Elastic-Api-Version: 2023-10-31" \
+      -H "Content-Type: application/json" \
+      -d @"${DASHBOARD_FILE}" 2>/dev/null || echo '{"error":"curl failed"}')"
+    if echo "$result" | jq -e '.id' > /dev/null 2>&1; then
+      title="$(echo "$result" | jq -r '.data.title // .title // "unknown"')"
+      ok "Created: $title"
     else
-      err "$(echo "$result" | jq -r '.errors[]?.error.message // "import failed"' 2>/dev/null | head -3)"
+      err "$(echo "$result" | jq -r '.message // .error // "create failed"' 2>/dev/null | head -3)"
     fi
   else
     warn "Dashboard file not found: $DASHBOARD_FILE"
