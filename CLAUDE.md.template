@@ -1,0 +1,37 @@
+# Persistent Memory (agent-memory)
+
+This project uses [agent-memory](https://github.com/jeffvestal/agent-memory) —
+Elasticsearch as persistent semantic memory for Claude Code agents.
+
+## When to Use Memory
+
+| Need | Command |
+|---|---|
+| Recall context from prior sessions | `bridge recall "<what you're looking for>"` |
+| Search indexed project files | `bridge entity search "<query>"` |
+| Store a decision or observation | `bridge remember "<text>" [--type feedback\|project\|reference]` |
+| Check session history | `bridge history` |
+| See current memory status | `bridge status` |
+
+**Decision routing:**
+- Use `bridge recall` for memories you or prior sessions explicitly stored (decisions, preferences, observations)
+- Use `bridge entity search` for content from project files indexed from BRIDGE_WATCH_DIRS
+- Use `bridge status` to confirm ES is online before relying on memory
+
+## Automatic Behaviors (via hooks)
+
+- **Session start**: Syncs memory files from `~/.claude/projects/.../memory/` to ES
+- **File writes**: Indexes `.md` files to the entity search index automatically
+- **Session end**: Logs session summary to `agent-sessions` index
+
+## Configuration
+
+Memory is stored in Elasticsearch. The following must be set in `.env` (in the agent-memory directory):
+
+```
+BRIDGE_ES_URL=https://...elastic.cloud
+BRIDGE_ES_API_KEY=<scoped key>
+BRIDGE_AGENT_ID=<your agent name>
+BRIDGE_WATCH_DIRS=/path/to/dirs/to/index
+BRIDGE_MEMORY_PATH=/path/to/claude/memory/dir
+```

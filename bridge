@@ -1,0 +1,144 @@
+#!/opt/homebrew/bin/bash
+# bridge — Agent communication CLI
+# Usage: bridge <command> [args...]
+set -euo pipefail
+
+BRIDGE_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || realpath "$0")")" && pwd)"
+
+# Load config (sets BRIDGE_ES_URL, BRIDGE_AGENT_ID, etc.)
+source "$BRIDGE_DIR/lib/config.sh"
+
+# Load modules
+source "$BRIDGE_DIR/lib/es.sh"
+source "$BRIDGE_DIR/lib/fallback.sh"
+source "$BRIDGE_DIR/lib/messages.sh"
+source "$BRIDGE_DIR/lib/memory.sh"
+source "$BRIDGE_DIR/lib/sessions.sh"
+source "$BRIDGE_DIR/lib/memory-sync.sh"
+source "$BRIDGE_DIR/lib/tasks.sh"
+source "$BRIDGE_DIR/lib/entities.sh"
+source "$BRIDGE_DIR/lib/agent.sh"
+source "$BRIDGE_DIR/lib/workflow.sh"
+source "$BRIDGE_DIR/lib/setup.sh"
+
+usage() {
+  cat <<'EOF'
+bridge — Agent communication & shared memory CLI
+
+MESSAGES
+  bridge send <to> <type> <body> [--subject S] [--priority P] [--tags t1,t2]
+  bridge check [--unread] [--type X] [--limit N]
+  bridge reply <message_id> <body>
+  bridge ack <message_id>
+
+MEMORY
+  bridge remember <type> <content> [--title T] [--tags t1,t2] [--scope shared] [--category C]
+  bridge recall <query> [--type X] [--category X] [--limit N] [--semantic|--keyword|--hybrid]
+  bridge forget <memory_id> [--superseded-by ID]
+
+SESSIONS
+  bridge log <action> <summary> [--tags t1,t2] [--files f1,f2]
+  bridge history [--agent X] [--last 7d] [--limit N]
+
+TASKS
+  bridge task start <title> [--description D] [--priority P] [--tags t1,t2]
+  bridge task update <task_id> [--status S] [--note N]
+  bridge task done <task_id> [--outcome O]
+  bridge task fail <task_id> [--reason R]
+  bridge task list [--agent X] [--status S] [--limit N]
+  bridge task current
+
+WORKFLOW (Elastic Workflows)
+  bridge workflow list
+  bridge workflow deploy <yaml_file> | deploy-all
+  bridge workflow run <name_or_id> [--input key=val ...]
+  bridge workflow status <execution_id>
+  bridge workflow enable <name_or_id>
+  bridge workflow disable <name_or_id>
+  bridge workflow delete <name_or_id>
+
+AGENT (Agent Builder)
+  bridge agent converse <agent_id> <input> [--connector CONNECTOR_ID] [--session SESSION_ID]
+
+ENTITIES (semantic file indexing)
+  bridge entity index-file <path>        Index a single markdown file
+  bridge entity index-all [--quiet]      Bulk index all files in BRIDGE_WATCH_DIRS
+  bridge entity search <query> [limit]   Hybrid search across indexed entities
+  bridge entity health                   Show entity count and index info
+
+HEARTBEAT
+  bridge heartbeat          Send agent heartbeat (throttled to 60s)
+
+SYNC
+  bridge sync-memories [--force] [--quiet]   Sync local auto-memories to ES
+
+SETUP
+  bridge setup export    Capture live cluster state to setup/definitions/
+  bridge setup install   Full idempotent install from definitions/
+
+SYSTEM
+  bridge status          Show connectivity and index stats
+  bridge sync            Flush offline queue to ES
+  bridge help            This message
+
+AGENT: $BRIDGE_AGENT_ID @ $BRIDGE_MACHINE
+EOF
+}
+
+cmd_status() {
+  echo -n "ES connectivity: "
+  if es_online; then
+    echo "✓ online"
+    echo ""
+    echo "Index stats:"
+    for idx in "$IDX_MESSAGES" "$IDX_MEMORY" "$IDX_SESSIONS" "$IDX_TASKS" "$IDX_STATUS" "$IDX_ENTITIES" "$IDX_ENTITY_HISTORY"; do
+      local count
+      count="$(es_count "$idx" 2>/dev/null || echo "?")"
+      printf "  %-20s %s docs\n" "$idx" "$count"
+    done
+  else
+    echo "✗ offline"
+  fi
+
+  # Count queued files
+  local queued=0
+  local _files
+  _files="$(find "$BRIDGE_FALLBACK_DIR" -path "*/outbox/*.json" -type f 2>/dev/null)"
+  if [[ -n "$_files" ]]; then
+    queued="$(echo "$_files" | wc -l | tr -d ' ')"
+  fi
+  echo ""
+  echo "Offline queue: $queued documents"
+  echo "Agent: $BRIDGE_AGENT_ID @ $BRIDGE_MACHINE"
+}
+
+# Route commands
+case "${1:-help}" in
+  send)    shift; msg_send "$@" ;;
+  check)   shift; msg_check "$@" ;;
+  reply)   shift; msg_reply "$@" ;;
+  ack)     shift; msg_ack "$@" ;;
+
+  remember) shift; mem_remember "$@" ;;
+  recall)   shift; mem_recall "$@" ;;
+  forget)   shift; mem_forget "$@" ;;
+
+  log)     shift; session_log "$@" ;;
+  history) shift; session_history "$@" ;;
+
+  task)      shift; task_dispatch "$@" ;;
+  heartbeat)       heartbeat_send ;;
+  suspend-tasks)   task_suspend_active ;;
+
+  sync-memories) shift; memory_sync "$@" ;;
+
+  workflow) shift; workflow_dispatch "$@" ;;
+  agent)   shift; agent_dispatch "$@" ;;
+  entity)  shift; entity_dispatch "$@" ;;
+  setup)   shift; setup_dispatch "$@" ;;
+
+  status)  cmd_status ;;
+  sync)    fallback_sync ;;
+  help|-h|--help) usage ;;
+  *)       echo "Unknown command: $1" >&2; usage >&2; exit 1 ;;
+esac

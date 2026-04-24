@@ -1,0 +1,37 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/REPLACE_WITH_AGENT_MEMORY_PATH/bridge sync-memories && /REPLACE_WITH_AGENT_MEMORY_PATH/bridge heartbeat"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/REPLACE_WITH_AGENT_MEMORY_PATH/hooks/index-file.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/REPLACE_WITH_AGENT_MEMORY_PATH/bridge log --action session-end --quiet"
+          }
+        ]
+      }
+    ]
+  }
+}

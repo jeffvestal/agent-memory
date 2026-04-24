@@ -1,0 +1,9 @@
+# Secrets
+.env
+
+# macOS
+.DS_Store
+.elastic-credentials
+
+# Sync state (per-machine hash tracking)
+.sync-state/
