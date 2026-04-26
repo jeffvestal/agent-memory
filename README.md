@@ -158,6 +158,10 @@ Copy `.env.example` to `.env` (or let `install.sh` create it).
 - Check `fallback/{agent}/outbox/` for queued files
 - Verify ES connectivity first with `bridge status`
 
+## Dashboard
+
+![Agent Memory — Overview](agent-memory-dashboard_v1.png)
+
 ## License
 
 Apache 2.0

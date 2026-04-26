@@ -175,22 +175,13 @@
       "config": {
         "title": "Memory by Type",
         "description": "Distribution of stored memory types. Common types: handoff, project, feedback, reference, observation.",
-        "type": "xy",
-        "axis": {
-          "x": { "title": { "visible": false } },
-          "y": { "title": { "visible": false } }
+        "type": "treemap",
+        "data_source": {
+          "type": "esql",
+          "query": "FROM agent-memory | STATS count = COUNT(*) BY memory_type = type | SORT count DESC"
         },
-        "layers": [
-          {
-            "type": "bar",
-            "data_source": {
-              "type": "esql",
-              "query": "FROM agent-memory | STATS count = COUNT(*) BY memory_type = type | SORT count DESC"
-            },
-            "x": { "column": "memory_type" },
-            "y": [{ "column": "count" }]
-          }
-        ]
+        "slices": [{ "column": "memory_type" }],
+        "metric": { "column": "count" }
       }
     },
 
