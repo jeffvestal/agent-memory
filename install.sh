@@ -265,8 +265,8 @@ if [[ -z "${KIBANA_URL:-}" ]]; then
 else
   DASHBOARD_FILE="$INSTALL_DIR/setup/dashboards/agent-memory-overview.json"
   if [[ -f "$DASHBOARD_FILE" ]]; then
-    echo -n "  Creating dashboard: "
-    result="$(curl -s -X POST "${KIBANA_URL}/api/dashboards" \
+    echo -n "  Upserting dashboard: "
+    result="$(curl -s -X PUT "${KIBANA_URL}/api/dashboards/agent-memory-overview" \
       -H "Authorization: ApiKey ${BRIDGE_ES_API_KEY}" \
       -H "kbn-xsrf: true" \
       -H "Elastic-Api-Version: 2023-10-31" \
@@ -274,9 +274,9 @@ else
       -d @"${DASHBOARD_FILE}" 2>/dev/null || echo '{"error":"curl failed"}')"
     if echo "$result" | jq -e '.id' > /dev/null 2>&1; then
       title="$(echo "$result" | jq -r '.data.title // .title // "unknown"')"
-      ok "Created: $title"
+      ok "Upserted: $title"
     else
-      err "$(echo "$result" | jq -r '.message // .error // "create failed"' 2>/dev/null | head -3)"
+      err "$(echo "$result" | jq -r '.message // .error // "upsert failed"' 2>/dev/null | head -3)"
     fi
   else
     warn "Dashboard file not found: $DASHBOARD_FILE"

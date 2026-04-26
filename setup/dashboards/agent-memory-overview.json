@@ -4,10 +4,21 @@
   "panels": [
 
     {
+      "type": "markdown",
+      "id": "overview-header",
+      "grid": { "x": 0, "y": 0, "w": 48, "h": 4 },
+      "config": {
+        "content": "## Agent Memory — Overview\n**What this is**: Real-time view of what your Claude Code agents are storing, doing, and remembering across sessions and machines.\n**Look for**: Memory growth rate · Which agents are most active · What action types dominate sessions · Unread messages between agents · Entity index health\n**Tip**: Narrow time range to Last 24h for recent activity. A spike in sessions often means a long agentic run. Rising memory count means agents are retaining context successfully."
+      }
+    },
+
+    {
       "type": "vis",
       "id": "kpi-memories",
-      "grid": { "x": 0, "y": 0, "w": 8, "h": 5 },
+      "grid": { "x": 0, "y": 4, "w": 8, "h": 5 },
       "config": {
+        "title": "Memories",
+        "description": "Total memories stored across all agents. Includes decisions, handoffs, references, and notes.",
         "type": "metric",
         "data_source": {
           "type": "esql",
@@ -20,8 +31,10 @@
     {
       "type": "vis",
       "id": "kpi-sessions",
-      "grid": { "x": 8, "y": 0, "w": 8, "h": 5 },
+      "grid": { "x": 8, "y": 4, "w": 8, "h": 5 },
       "config": {
+        "title": "Sessions",
+        "description": "Total session events logged. Each agent action (task start, file write, recall, etc.) creates a session record.",
         "type": "metric",
         "data_source": {
           "type": "esql",
@@ -34,8 +47,10 @@
     {
       "type": "vis",
       "id": "kpi-tasks-active",
-      "grid": { "x": 16, "y": 0, "w": 8, "h": 5 },
+      "grid": { "x": 16, "y": 4, "w": 8, "h": 5 },
       "config": {
+        "title": "Active Tasks",
+        "description": "Tasks currently in progress. Should be 0 or 1 per active agent — a high number indicates stale task state.",
         "type": "metric",
         "data_source": {
           "type": "esql",
@@ -48,8 +63,10 @@
     {
       "type": "vis",
       "id": "kpi-tasks-done",
-      "grid": { "x": 24, "y": 0, "w": 8, "h": 5 },
+      "grid": { "x": 24, "y": 4, "w": 8, "h": 5 },
       "config": {
+        "title": "Completed Tasks",
+        "description": "Tasks finished successfully with an outcome recorded. Tracks productive agent work over the selected time range.",
         "type": "metric",
         "data_source": {
           "type": "esql",
@@ -62,8 +79,10 @@
     {
       "type": "vis",
       "id": "kpi-entities",
-      "grid": { "x": 32, "y": 0, "w": 8, "h": 5 },
+      "grid": { "x": 32, "y": 4, "w": 8, "h": 5 },
       "config": {
+        "title": "Entities",
+        "description": "Markdown files indexed for semantic search. Grows as agents write or edit .md files in BRIDGE_WATCH_DIRS.",
         "type": "metric",
         "data_source": {
           "type": "esql",
@@ -76,8 +95,10 @@
     {
       "type": "vis",
       "id": "kpi-unread-msgs",
-      "grid": { "x": 40, "y": 0, "w": 8, "h": 5 },
+      "grid": { "x": 40, "y": 4, "w": 8, "h": 5 },
       "config": {
+        "title": "Unread Messages",
+        "description": "Messages in the inter-agent queue not yet acknowledged. Non-zero means an agent has pending communication to act on.",
         "type": "metric",
         "data_source": {
           "type": "esql",
@@ -90,8 +111,10 @@
     {
       "type": "vis",
       "id": "ts-sessions",
-      "grid": { "x": 0, "y": 5, "w": 24, "h": 10 },
+      "grid": { "x": 0, "y": 9, "w": 24, "h": 10 },
       "config": {
+        "title": "Sessions Over Time",
+        "description": "Session events per time bucket. Spikes = high-activity or long agentic runs. Flat periods = no agent running.",
         "type": "xy",
         "axis": {
           "x": {
@@ -118,8 +141,10 @@
     {
       "type": "vis",
       "id": "ts-memories",
-      "grid": { "x": 24, "y": 5, "w": 24, "h": 10 },
+      "grid": { "x": 24, "y": 9, "w": 24, "h": 10 },
       "config": {
+        "title": "Memories Created",
+        "description": "New memories stored per time bucket. Rising trend = agents persisting more context across sessions.",
         "type": "xy",
         "axis": {
           "x": {
@@ -146,8 +171,10 @@
     {
       "type": "vis",
       "id": "bar-memory-type",
-      "grid": { "x": 0, "y": 15, "w": 16, "h": 10 },
+      "grid": { "x": 0, "y": 19, "w": 16, "h": 10 },
       "config": {
+        "title": "Memory by Type",
+        "description": "Distribution of stored memory types. Common types: handoff, project, feedback, reference, observation.",
         "type": "xy",
         "axis": {
           "x": { "title": { "visible": false } },
@@ -158,9 +185,9 @@
             "type": "bar",
             "data_source": {
               "type": "esql",
-              "query": "FROM agent-memory | STATS count = COUNT(*) BY type | SORT count DESC"
+              "query": "FROM agent-memory | STATS count = COUNT(*) BY memory_type = type | SORT count DESC"
             },
-            "x": { "column": "type" },
+            "x": { "column": "memory_type" },
             "y": [{ "column": "count" }]
           }
         ]
@@ -170,8 +197,10 @@
     {
       "type": "vis",
       "id": "bar-entity-type",
-      "grid": { "x": 16, "y": 15, "w": 16, "h": 10 },
+      "grid": { "x": 16, "y": 19, "w": 16, "h": 10 },
       "config": {
+        "title": "Entities by Type",
+        "description": "Entity index breakdown by type, inferred from directory structure in BRIDGE_WATCH_DIRS (e.g. docs/, notes/, projects/).",
         "type": "xy",
         "axis": {
           "x": { "title": { "visible": false } },
@@ -194,8 +223,10 @@
     {
       "type": "vis",
       "id": "bar-task-status",
-      "grid": { "x": 32, "y": 15, "w": 16, "h": 10 },
+      "grid": { "x": 32, "y": 19, "w": 16, "h": 10 },
       "config": {
+        "title": "Tasks by Status",
+        "description": "Task lifecycle distribution. Suspended tasks may need attention. Failed tasks indicate errors worth investigating.",
         "type": "xy",
         "axis": {
           "x": { "title": { "visible": false } },
@@ -218,8 +249,10 @@
     {
       "type": "vis",
       "id": "bar-memory-agent",
-      "grid": { "x": 0, "y": 25, "w": 24, "h": 10 },
+      "grid": { "x": 0, "y": 29, "w": 24, "h": 10 },
       "config": {
+        "title": "Memories by Agent",
+        "description": "Memory volume per agent ID. Multi-agent setups show multiple bars. Imbalance may indicate one agent doing more persistent work.",
         "type": "xy",
         "axis": {
           "x": { "title": { "visible": false } },
@@ -242,8 +275,10 @@
     {
       "type": "vis",
       "id": "bar-session-action",
-      "grid": { "x": 24, "y": 25, "w": 24, "h": 10 },
+      "grid": { "x": 24, "y": 29, "w": 24, "h": 10 },
       "config": {
+        "title": "Sessions by Action",
+        "description": "Most frequent session action types logged. token-turn dominates active AI assistant usage. task-status-change tracks task lifecycle events.",
         "type": "xy",
         "axis": {
           "x": { "title": { "visible": false } },
