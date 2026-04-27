@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # config.sh — Load .env, set defaults, validate environment
 
-BRIDGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BRIDGE_DIR="${BRIDGE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
 # Load .env if it exists — only sets vars not already in environment
 if [[ -f "$BRIDGE_DIR/.env" ]]; then
