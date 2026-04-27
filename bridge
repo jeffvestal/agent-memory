@@ -16,7 +16,7 @@ source "$BRIDGE_DIR/lib/memory.sh"
 source "$BRIDGE_DIR/lib/sessions.sh"
 source "$BRIDGE_DIR/lib/memory-sync.sh"
 source "$BRIDGE_DIR/lib/tasks.sh"
-source "$BRIDGE_DIR/lib/entities.sh"
+source "$BRIDGE_DIR/lib/graph.sh"
 source "$BRIDGE_DIR/lib/agent.sh"
 source "$BRIDGE_DIR/lib/workflow.sh"
 source "$BRIDGE_DIR/lib/setup.sh"
@@ -60,10 +60,18 @@ WORKFLOW (Elastic Workflows)
 AGENT (Agent Builder)
   bridge agent converse <agent_id> <input> [--connector CONNECTOR_ID] [--session SESSION_ID]
 
-ENTITIES (semantic file indexing)
+GRAPH (hybrid search + knowledge graph)
+  bridge graph search <query> [--types T] [--days N] [--all-time] [--limit N]
+  bridge graph related <entity_id> [--depth 1|2] [--rel-type TYPE]
+  bridge graph check-blockers [--stale-days N]
+  bridge graph semantic-diff <from-date> <to-date>
+  bridge graph gen-handoff [--hours N] [--synthesize]
+  bridge graph health
+
+ENTITIES (file indexing)
   bridge entity index-file <path>        Index a single markdown file
   bridge entity index-all [--quiet]      Bulk index all files in BRIDGE_WATCH_DIRS
-  bridge entity search <query> [limit]   Hybrid search across indexed entities
+  bridge entity search <query> [limit]   Keyword search across indexed entities
   bridge entity health                   Show entity count and index info
 
 HEARTBEAT
@@ -134,6 +142,7 @@ case "${1:-help}" in
 
   workflow) shift; workflow_dispatch "$@" ;;
   agent)   shift; agent_dispatch "$@" ;;
+  graph)   shift; graph_dispatch "$@" ;;
   entity)  shift; entity_dispatch "$@" ;;
   setup)   shift; setup_dispatch "$@" ;;
 
