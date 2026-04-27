@@ -9,6 +9,7 @@ Claude Code agents are stateless between sessions. agent-memory gives them a sha
 - **Semantic memory recall** — store decisions, patterns, and context; retrieve with hybrid keyword + semantic search instead of loading full files into context
 - **Session history** — every agent action logged and queryable by agent, time range, or tag
 - **Entity search** — markdown files auto-indexed on every write; semantic search across your project docs without directory scans
+- **Knowledge graph** — semantic graph over your markdown corpus: `graph search` uses FORK/FUSE hybrid (BM25 + Jina v5); `graph related` traverses explicit and inferred entity relationships; `graph check-blockers` surfaces stale blocked work; `graph semantic-diff` diffs entity state between two dates; `graph gen-handoff` builds a structured context payload for session handoffs; `graph reconcile` cleans up orphaned ES entities
 - **Inter-agent messaging** — typed messages between agents across machines, with thread support and priority
 - **Task tracking** — full lifecycle from `created` through `completed` or `failed`, with notes and outcomes
 - **Offline resilience** — writes queue locally when Elasticsearch is unreachable; `bridge sync` flushes them when connectivity returns
@@ -92,6 +93,11 @@ Copy `.env.example` to `.env` (or let `install.sh` create it).
 | `BRIDGE_TIMEOUT` | no | `5` | Elasticsearch request timeout in seconds |
 | `BRIDGE_ENTITY_INDEX` | no | `{agent}-entities` | Entity index name; set by `install.sh` |
 | `BRIDGE_ENTITY_HISTORY_INDEX` | no | `{agent}-entity-history` | Entity history index name; set by `install.sh` |
+| `BRIDGE_ENTITY_ROOT` | no | — | Base directory for `BRIDGE_ENTITY_TYPE_MAP` paths; required for `bridge graph reconcile` |
+| `BRIDGE_ENTITY_TYPE_MAP` | no | — | Comma-separated `dir:type` pairs for reconcile, e.g. `projects:project,ideas:idea` |
+| `BRIDGE_SYNTHESIS_AGENT` | no | — | Agent Builder agent ID for `bridge graph gen-handoff --synthesize` |
+| `BRIDGE_INGEST_ALERT_TAGS` | no | `ingest-failure` | Tag(s) queried from `agent-messages` in `bridge graph health` |
+| `BRIDGE_MEMORY_DECAY_WINDOW` | no | `45d` | Temporal decay half-life for hybrid memory recall; recent memories rank higher |
 
 ## Architecture
 
@@ -105,7 +111,7 @@ Copy `.env.example` to `.env` (or let `install.sh` create it).
                        ▼
 ┌─────────────────────────────────────────────────────────────┐
 │               bridge CLI  (lib/*.sh modules)                 │
-│   memory · messages · tasks · sessions · entities           │
+│   memory · messages · tasks · sessions · graph              │
 └──────────────────────┬──────────────────────────────────────┘
                        │  online: direct index
                        │  offline: fallback/ queue → bridge sync
@@ -115,7 +121,14 @@ Copy `.env.example` to `.env` (or let `install.sh` create it).
 │  agent-memory   agent-messages    │   │  outbox/  (JSON queue) │
 │  agent-tasks    agent-sessions    │   │  synced on reconnect   │
 │  agent-status   {agent}-entities  │   └───────────────────────┘
-└────────────────────────────────────┘
+│  {agent}-entity-history           │
+└──────────────────┬─────────────────┘
+                   │
+       ┌───────────┴───────────────────────────────────┐
+       │         bridge graph commands                  │
+       │  search · related · check-blockers            │
+       │  semantic-diff · gen-handoff · reconcile      │
+       └───────────────────────────────────────────────┘
 ```
 
 **Hybrid search** — memory and entity recall use Reciprocal Rank Fusion combining Jina v5 semantic embeddings with BM25 on title, content, and tags. Pass `--semantic`, `--keyword`, or `--hybrid` (default) to control the mode.
@@ -125,6 +138,89 @@ Copy `.env.example` to `.env` (or let `install.sh` create it).
 **Auto-memory sync** — on `SessionStart`, `bridge sync-memories` reads `~/.claude/projects/<cwd>/memory/*.md`, hashes each file, and re-indexes only changed files into `agent-memory`.
 
 **Entity indexing** — the `PostToolUse` hook calls `bridge entity index-file` on every markdown write. Entity IDs are `{agent}-{type}-{slug}`, so re-indexing is idempotent.
+
+## Knowledge Graph
+
+Semantic search, relationship traversal, and temporal analysis over your markdown knowledge base. Set up `BRIDGE_ENTITY_TYPE_MAP` and `BRIDGE_ENTITY_ROOT` in `.env`, then use the `PostToolUse` hook to auto-index files on write.
+
+### `bridge graph search <query> [options]`
+
+Hybrid ES|QL FORK/FUSE: 0.3 × BM25 + 0.7 × Jina v5 semantic score. Default recency window is 180 days.
+
+| Option | Default | Description |
+|---|---|---|
+| `--types T1,T2` | all | Filter by entity_type |
+| `--days N` | 180 | Only return entities updated within N days |
+| `--all-time` | off | Remove recency filter |
+| `--limit N` | 10 | Max results |
+
+```bash
+bridge graph search "vector search projects"
+bridge graph search "blocked initiatives" --types initiative --all-time
+```
+
+### `bridge graph related <entity_id> [options]`
+
+Traverse entity relationships — returns forward edges (declared by this entity) and reverse edges (other entities pointing at this one). Cycle-safe.
+
+| Option | Default | Description |
+|---|---|---|
+| `--depth 1\|2` | 1 | Traversal depth |
+| `--rel-type TYPE` | all | Filter: `blocks`, `part_of`, `depends_on`, `relates_to` |
+| `--limit N` | 10 | Max edges per direction |
+
+```bash
+bridge graph related myagent-initiative-platform
+bridge graph related myagent-project-data-pipeline --depth 2 --rel-type blocks
+```
+
+### `bridge graph health`
+
+Entity count, 24h snapshot count, summary coverage, open ingest alerts from `agent-messages`.
+
+### `bridge graph check-blockers [--stale-days N]`
+
+List blocked or waiting entities not updated in N days (default: 7).
+
+```bash
+bridge graph check-blockers --stale-days 3
+```
+
+### `bridge graph semantic-diff <from-date> <to-date>`
+
+Snapshot diff between two dates — new entities, status changes, newly blocked, newly done.
+
+```bash
+bridge graph semantic-diff 2026-04-01 2026-04-20
+```
+
+### `bridge graph gen-handoff [--hours N] [--synthesize]`
+
+Structured JSON context for handoffs: entities updated in the window, active blockers, recent session logs. `--synthesize` pipes through `BRIDGE_SYNTHESIS_AGENT` for a narrative paragraph.
+
+```bash
+bridge graph gen-handoff --hours 8
+bridge graph gen-handoff --hours 168 --synthesize
+```
+
+### `bridge graph reconcile [--force]`
+
+Delete ES entities whose source files no longer exist. Reads `BRIDGE_ENTITY_ROOT` and `BRIDGE_ENTITY_TYPE_MAP` to discover what files are expected. Gated to one run per hour; `--force` overrides.
+
+```bash
+# .env:
+# BRIDGE_ENTITY_ROOT=/path/to/knowledge/repo
+# BRIDGE_ENTITY_TYPE_MAP=projects:project,initiatives:initiative,ideas:idea
+
+bridge graph reconcile
+bridge graph reconcile --force
+```
+
+### `bridge entity index-file <path>` / `bridge entity index-all`
+
+Index a single file or bulk-index all files in `BRIDGE_WATCH_DIRS`. The `PostToolUse` hook calls `index-file` automatically on every `.md` write.
+
+---
 
 ## Troubleshooting
 
