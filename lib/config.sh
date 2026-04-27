@@ -28,6 +28,7 @@ fi
 
 # Defaults
 BRIDGE_MACHINE="$(scutil --get ComputerName 2>/dev/null || hostname -s)"
+BRIDGE_MEMORY_DECAY_WINDOW="${BRIDGE_MEMORY_DECAY_WINDOW:-45d}"
 BRIDGE_TIMEOUT="${BRIDGE_TIMEOUT:-5}"
 BRIDGE_FALLBACK_DIR="$BRIDGE_DIR/fallback"
 
