@@ -822,6 +822,135 @@ entity_search() {
   fi
 }
 
+# ── graph-reconcile ───────────────────────────────────────────────────────────
+# Delete ES entities whose source files no longer exist.
+# Reads BRIDGE_ENTITY_ROOT and BRIDGE_ENTITY_TYPE_MAP to discover expected entities.
+# Gated: skips if last reconcile was < 1 hour ago. Use --force to override.
+# Usage: graph_reconcile [--force]
+graph_reconcile() {
+  local force=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --force) force=1; shift ;;
+      *) shift ;;
+    esac
+  done
+
+  if ! es_online; then
+    echo "ES offline — skipping reconcile" >&2
+    return 1
+  fi
+
+  local sync_state_dir="$BRIDGE_DIR/.sync-state"
+  local stamp_file="$sync_state_dir/last-reconcile"
+  mkdir -p "$sync_state_dir"
+
+  # Staleness gate: skip if last reconcile < 1 hour ago
+  if [[ $force -eq 0 && -f "$stamp_file" ]]; then
+    local last_run
+    last_run="$(cat "$stamp_file")"
+    local now_epoch
+    now_epoch="$(date +%s)"
+    local age=$(( now_epoch - last_run ))
+    if [[ $age -lt 3600 ]]; then
+      echo "Reconcile skipped — last run was ${age}s ago (< 1 hour). Use --force to override."
+      return 0
+    fi
+  fi
+
+  # Parse BRIDGE_ENTITY_TYPE_MAP ("dir:type,dir:type,...")
+  # Dirs are resolved relative to BRIDGE_ENTITY_ROOT if set
+  local root="${BRIDGE_ENTITY_ROOT:-}"
+  local -A type_map
+
+  if [[ -z "${BRIDGE_ENTITY_TYPE_MAP:-}" ]]; then
+    echo "BRIDGE_ENTITY_TYPE_MAP not set — nothing to reconcile" >&2
+    return 0
+  fi
+
+  IFS=',' read -ra pairs <<< "$BRIDGE_ENTITY_TYPE_MAP"
+  for pair in "${pairs[@]}"; do
+    local dir="${pair%%:*}" etype="${pair##*:}"
+    [[ -n "$root" ]] && dir="${root}/${dir}"
+    type_map["$dir"]="$etype"
+  done
+
+  # Collect all expected entity_ids from source files
+  local -A expected
+  local skip_files=("_index.md" ".gitkeep")
+  local skip_dirs=("archive")
+
+  for dir in "${!type_map[@]}"; do
+    local etype="${type_map[$dir]}"
+    [[ -d "$dir" ]] || continue
+    while IFS= read -r -d '' f; do
+      local fname
+      fname="$(basename "$f")"
+      local skip=0
+      for sf in "${skip_files[@]}"; do [[ "$fname" == "$sf" ]] && skip=1 && break; done
+      for sd in "${skip_dirs[@]}"; do [[ "$f" == *"/$sd/"* ]] && skip=1 && break; done
+      [[ $skip -eq 1 ]] && continue
+      local stem="${fname%.md}"
+      local slug
+      slug="$(echo "$stem" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')"
+      expected["${BRIDGE_AGENT_ID}-${etype}-${slug}"]="$f"
+    done < <(find "$dir" -maxdepth 2 -name "*.md" -print0 2>/dev/null)
+  done
+
+  echo "Expected entities: ${#expected[@]}"
+
+  # Paginated fetch via search_after — handles >1000 entities without silent misses
+  local orphans=0 checked=0
+  local search_after_val="" page=0
+
+  while true; do
+    local page_body
+    if [[ -z "$search_after_val" ]]; then
+      page_body='{"query": {"match_all": {}}, "_source": ["entity_id", "source_file"], "sort": [{"entity_id": "asc"}], "size": 200}'
+    else
+      page_body="$(jq -n \
+        --argjson sa "$search_after_val" \
+        '{"query": {"match_all": {}}, "_source": ["entity_id", "source_file"], "sort": [{"entity_id": "asc"}], "size": 200, "search_after": $sa}')"
+    fi
+
+    local page_result
+    page_result="$(es_request POST "/${IDX_ENTITIES}/_search" "$page_body")"
+    local page_hits
+    page_hits="$(echo "$page_result" | jq -c '.hits.hits // []')"
+    local hit_count
+    hit_count="$(echo "$page_hits" | jq 'length')"
+
+    [[ "$hit_count" -eq 0 ]] && break
+    (( page++ )) || true
+
+    while IFS= read -r line; do
+      local eid src_file
+      eid="$(echo "$line" | jq -r '.entity_id')"
+      src_file="$(echo "$line" | jq -r '.source_file')"
+      (( checked++ )) || true
+
+      if [[ ! -v "expected[$eid]" ]]; then
+        echo "  Orphan: $eid (was: $src_file)"
+        local del_result
+        del_result="$(es_request DELETE "/${IDX_ENTITIES}/_doc/${eid}")"
+        if echo "$del_result" | jq -e '.result == "deleted"' > /dev/null 2>&1; then
+          echo "    -> deleted"
+          (( orphans++ )) || true
+        else
+          echo "    -> delete failed: $(echo "$del_result" | jq -r '.error.reason // "unknown"')"
+        fi
+      fi
+    done < <(echo "$page_result" | jq -c '.hits.hits[]._source')
+
+    search_after_val="$(echo "$page_result" | jq -c '.hits.hits[-1].sort')"
+    [[ "$hit_count" -lt 200 ]] && break
+  done
+
+  echo "Checked: ${checked} (${page} page(s)) | Orphans removed: ${orphans}"
+  date +%s > "$stamp_file"
+}
+
+
 graph_dispatch() {
   local subcmd="${1:-help}"
   shift || true
@@ -833,6 +962,7 @@ graph_dispatch() {
     semantic-diff)  semantic_diff "$@" ;;
     gen-handoff)    gen_handoff "$@" ;;
     health)         graph_health "$@" ;;
+    reconcile)      graph_reconcile "$@" ;;
     help|-h|--help)
       cat <<'EOF'
 bridge graph — Knowledge graph search and analysis
@@ -862,9 +992,17 @@ HANDOFF
     Structured JSON context for handoff (uses summary field, ~10x smaller)
     --synthesize: pipe through BRIDGE_SYNTHESIS_AGENT for narrative summary
 
+MAINTENANCE
+  bridge graph reconcile [--force]
+    Delete ES entities whose source files no longer exist
+    Reads BRIDGE_ENTITY_TYPE_MAP for source dir → entity type mapping
+    (gated: skips if last run < 1 hour)
+
 Config (.env):
-  BRIDGE_SYNTHESIS_AGENT   Agent Builder agent ID for --synthesize
-  BRIDGE_INGEST_ALERT_TAGS Alert tags to monitor (default: ingest-failure)
+  BRIDGE_SYNTHESIS_AGENT    Agent Builder agent ID for --synthesize
+  BRIDGE_INGEST_ALERT_TAGS  Alert tags to monitor (default: ingest-failure)
+  BRIDGE_ENTITY_ROOT        Base directory for BRIDGE_ENTITY_TYPE_MAP paths
+  BRIDGE_ENTITY_TYPE_MAP    Comma-separated dir:type pairs, e.g. "projects:project,ideas:idea"
 EOF
       ;;
     *) echo "Unknown graph subcommand: $subcmd" >&2; graph_dispatch help >&2; return 1 ;;
