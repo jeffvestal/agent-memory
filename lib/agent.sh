@@ -23,8 +23,10 @@ agent_converse() {
     esac
   done
 
+  # Accept either KIBANA_URL or BRIDGE_KIBANA_URL
+  KIBANA_URL="${KIBANA_URL:-${BRIDGE_KIBANA_URL:-}}"
   if [[ -z "${KIBANA_URL:-}" ]]; then
-    echo "ERROR: KIBANA_URL not set — add to $BRIDGE_DIR/.env" >&2
+    echo "ERROR: KIBANA_URL or BRIDGE_KIBANA_URL not set — add to $BRIDGE_DIR/.env" >&2
     return 1
   fi
 
@@ -38,8 +40,9 @@ agent_converse() {
      | if $connector_id != "" then . + {connector_id: $connector_id} else . end
      | if $session_id != "" then . + {session_id: $session_id} else . end')
 
+  local kibana_key="${BRIDGE_KIBANA_API_KEY:-${BRIDGE_ES_API_KEY}}"
   curl -s -X POST "${KIBANA_URL}/api/agent_builder/converse" \
-    -H "Authorization: ApiKey ${BRIDGE_ES_API_KEY}" \
+    -H "Authorization: ApiKey ${kibana_key}" \
     -H "kbn-xsrf: true" \
     -H "Content-Type: application/json" \
     -d "$payload"
