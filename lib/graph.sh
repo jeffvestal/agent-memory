@@ -838,7 +838,7 @@ graph_reconcile() {
 
   if ! es_online; then
     echo "ES offline — skipping reconcile" >&2
-    return 1
+    return 0
   fi
 
   local sync_state_dir="$BRIDGE_DIR/.sync-state"
