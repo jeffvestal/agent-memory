@@ -169,7 +169,7 @@ entity_health() {
 
 # ── graph-search ──────────────────────────────────────────────────────────────
 # ES|QL FORK/FUSE hybrid: 0.3 lexical + 0.7 semantic
-# Usage: graph_search "query" [--types T1,T2] [--days 180] [--all-time] [--limit 10]
+# Usage: graph_search "query" [--types T1,T2] [--days 180] [--all-time] [--limit 10] [--agents AGENT_LIST]
 graph_search() {
   local query="$1"
   shift
@@ -182,6 +182,7 @@ graph_search() {
       --days)     days="$2";     shift 2 ;;
       --all-time) all_time=1;    shift ;;
       --limit)    limit="$2";    shift 2 ;;
+      --agents)   AGENTS_LIST="$2"; shift 2 ;;
       *) shift ;;
     esac
   done
@@ -189,6 +190,21 @@ graph_search() {
   if ! es_online; then
     echo "ES offline — cannot graph-search" >&2
     return 1
+  fi
+
+  # Build search FROM clause (default to current agent, or comma-separated list if --agents)
+  local SEARCH_FROM="${IDX_ENTITIES}"
+  if [ -n "${AGENTS_LIST:-}" ]; then
+    SEARCH_FROM=""
+    IFS=',' read -ra AGENT_NAMES <<< "$AGENTS_LIST"
+    for ag in "${AGENT_NAMES[@]}"; do
+      ag=$(echo "$ag" | tr -d '[:space:]')
+      if [ -n "$SEARCH_FROM" ]; then
+        SEARCH_FROM="${SEARCH_FROM},${ag}-entities"
+      else
+        SEARCH_FROM="${ag}-entities"
+      fi
+    done
   fi
 
   # Escape query for safe ESQL interpolation
@@ -211,7 +227,7 @@ graph_search() {
 
   local esql_query
   esql_query="$(cat <<ESQL
-FROM ${IDX_ENTITIES} METADATA _id, _score, _index
+FROM ${SEARCH_FROM} METADATA _id, _score, _index
 | FORK (
     WHERE MATCH(title, "${safe_query}") OR MATCH(content, "${safe_query}")
     ${type_filter}
@@ -225,7 +241,7 @@ FROM ${IDX_ENTITIES} METADATA _id, _score, _index
 )
 | FUSE LINEAR WITH {"weights": {"0": 0.3, "1": 0.7}}
 | SORT _score DESC | LIMIT ${limit}
-| KEEP _id, entity_id, entity_type, title, status, priority, updated_at
+| KEEP _id, entity_id, entity_type, title, status, priority, updated_at, _index
 ESQL
 )"
 
@@ -239,7 +255,7 @@ ESQL
 
   echo "$result" | jq -r '
     .values[] |
-    "[\(.[2])] \(.[3]) | status: \(.[4]) | priority: \(.[5]) | updated: \(.[6][:10]) | id: \(.[1])"
+    "[\(.[2])@\(.[7] // "unknown")] \(.[3]) | status: \(.[4]) | priority: \(.[5]) | updated: \(.[6][:10]) | id: \(.[1])"
   '
 }
 
