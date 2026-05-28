@@ -75,7 +75,6 @@ bridge (CLI entrypoint)
        ├── messages.sh     — send/check/reply/ack → agent-messages index
        ├── tasks.sh        — task lifecycle + heartbeat → agent-tasks / agent-status indices
        ├── sessions.sh     — log/history → agent-sessions index
-       ├── entities.sh     — markdown indexing → {agent}-entities index
        ├── memory-sync.sh  — syncs .md files from auto-memory path to ES
        ├── workflow.sh     — Elastic Workflows REST API
        ├── agent.sh        — Agent Builder converse API

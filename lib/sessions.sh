@@ -57,7 +57,7 @@ session_log() {
       echo "Logged [$action]: ${summary:0:60}"
     else
       fallback_queue "$IDX_SESSIONS" "$sess_id" "$doc"
-      echo "ES error — queued session log"
+      echo "ES error — queued session log" >&2
     fi
   else
     fallback_queue "$IDX_SESSIONS" "$sess_id" "$doc"

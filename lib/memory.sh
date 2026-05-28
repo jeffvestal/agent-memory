@@ -66,7 +66,7 @@ mem_remember() {
       echo "Remembered [$type]: ${title:-${content:0:60}}... [${mem_id}]"
     else
       fallback_queue "$IDX_MEMORY" "$mem_id" "$doc"
-      echo "ES error — queued to fallback [${mem_id}]"
+      echo "ES error — queued to fallback [${mem_id}]" >&2
     fi
   else
     fallback_queue "$IDX_MEMORY" "$mem_id" "$doc"

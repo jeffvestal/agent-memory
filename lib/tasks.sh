@@ -125,7 +125,7 @@ task_start() {
     else
       fallback_queue "$IDX_TASKS" "$tid" "$doc"
       echo "$tid" > "$BRIDGE_CURRENT_TASK_FILE"
-      echo "ES error — queued task [$tid]"
+      echo "ES error — queued task [$tid]" >&2
     fi
   else
     fallback_queue "$IDX_TASKS" "$tid" "$doc"

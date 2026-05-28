@@ -20,13 +20,23 @@ Recalling a stored memory costs a single search query. The alternative is loadin
 
 ## Quick start
 
+**Requirements:** Elasticsearch Serverless or Elasticsearch 9.3+ · `jq` (`brew install jq` on macOS) · A Jina API key (self-managed ES only — Serverless uses the Elastic Inference Service automatically)
+
 ```bash
 git clone https://github.com/jeffvestal/agent-memory && cd agent-memory
 ./install.sh
 ./bridge status
 ```
 
-`install.sh` walks you through credentials, creates the Jina v5 semantic inference endpoint, and sets up seven Elasticsearch indices. `bridge status` confirms connectivity and shows doc counts. Add `bridge` to your `PATH` once setup completes.
+`install.sh` walks you through credentials interactively (or reads an existing `.env`), creates the Jina v5 inference endpoint, and sets up all indices. `bridge status` confirms connectivity. Add `bridge` to your `PATH` once setup completes.
+
+After `bridge status` shows online, run:
+
+```bash
+bridge entity index-all                                               # index existing markdown files
+bridge remember decision "Install confirmed working" --title "setup" # store first memory
+bridge recall "install"                                               # verify hybrid recall works
+```
 
 ## Hook integration
 
@@ -102,33 +112,39 @@ Copy `.env.example` to `.env` (or let `install.sh` create it).
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                    Claude Code agent                          │
-│   sessions, decisions, file writes, tasks, messages          │
-└──────────────────────┬──────────────────────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│               Claude Code agent                     │
+│  sessions · decisions · file writes · tasks         │
+└──────────────────────┬──────────────────────────────┘
+                       │  SessionStart hook (sync + heartbeat)
                        │  PostToolUse hook  (every .md write)
-                       │  SessionStart hook  (heartbeat + memory sync)
+                       │  Stop hook         (session-end log)
                        ▼
-┌─────────────────────────────────────────────────────────────┐
-│               bridge CLI  (lib/*.sh modules)                 │
-│   memory · messages · tasks · sessions · graph              │
-└──────────────────────┬──────────────────────────────────────┘
-                       │  online: direct index
-                       │  offline: fallback/ queue → bridge sync
-                       ▼
-┌────────────────────────────────────┐   ┌───────────────────────┐
-│        Elasticsearch Serverless    │   │  fallback/{agent}/    │
-│  agent-memory   agent-messages    │   │  outbox/  (JSON queue) │
-│  agent-tasks    agent-sessions    │   │  synced on reconnect   │
-│  agent-status   {agent}-entities  │   └───────────────────────┘
-│  {agent}-entity-history           │
-└──────────────────┬─────────────────┘
-                   │
-       ┌───────────┴───────────────────────────────────┐
-       │         bridge graph commands                  │
-       │  search · related · check-blockers            │
-       │  semantic-diff · gen-handoff · reconcile      │
-       └───────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│           bridge CLI  (lib/*.sh modules)            │
+│   memory · messages · tasks · sessions · graph      │
+└──────────────────────┬──────────────────────────────┘
+                       │
+           ┌───────────┴──────────────┐
+           │ online                   │ offline
+           ▼                          ▼
+┌──────────────────────────┐  ┌────────────────────────┐
+│  Elasticsearch           │  │  fallback/{agent}/     │
+│  agent-memory            │  │  outbox/ (JSON queue)  │
+│  agent-messages          │  │  flushed by bridge sync│
+│  agent-tasks             │  └────────────────────────┘
+│  agent-sessions          │
+│  agent-status            │
+│  {agent}-entities        │
+│  {agent}-entity-history  │
+└─────────────┬────────────┘
+              │
+   ┌──────────┴─────────────────────────────┐
+   │          bridge graph commands         │
+   │  search · related · check-blockers     │
+   │  semantic-diff · gen-handoff           │
+   │  reconcile · health                    │
+   └────────────────────────────────────────┘
 ```
 
 **Hybrid search** — memory and entity recall use Reciprocal Rank Fusion combining Jina v5 semantic embeddings with BM25 on title, content, and tags. Pass `--semantic`, `--keyword`, or `--hybrid` (default) to control the mode.
@@ -255,6 +271,8 @@ Index a single file or bulk-index all files in `BRIDGE_WATCH_DIRS`. The `PostToo
 - Verify ES connectivity first with `bridge status`
 
 ## Dashboard
+
+`install.sh` imports the Kibana dashboard automatically when `KIBANA_URL` is set in `.env`. If you skipped that step, set `KIBANA_URL` and re-run `./install.sh` — it's idempotent. The dashboard file is at `setup/dashboards/agent-memory-overview.json`.
 
 ![Agent Memory — Overview](agent-memory-dashboard_v1.png)
 
