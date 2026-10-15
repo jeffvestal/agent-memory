@@ -214,7 +214,8 @@ workflow_delete() {
   wf_id="$(_wf_resolve "$name_or_id")" || return 1
   local result status_code
   result="$(_wf_curl DELETE "/api/workflows/workflow/${wf_id}")"
-  status_code="$(echo "$result" | jq -r '.statusCode // 200')"
+  # Success returns an empty body
+  status_code="$( [[ -z "$result" ]] && echo 200 || echo "$result" | jq -r '.statusCode // 200')"
   if [[ "$status_code" != "200" && "$status_code" != "204" ]]; then
     echo "ERROR deleting $wf_id (HTTP $status_code):" >&2
     echo "$result" | jq -r '.message // .' >&2
