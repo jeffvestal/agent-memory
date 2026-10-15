@@ -709,7 +709,15 @@ ESQL
       return
     fi
     local synthesis_input="Generate a concise handoff summary from this ES data (window: ${hours}h): ${handoff_json}"
-    agent_converse "$synthesis_agent" "$synthesis_input"
+    # Emit only the agent's reply. The Converse envelope (ids, token usage, tool steps)
+    # is not a handoff and was being stored verbatim as one.
+    local reply
+    reply="$(agent_converse "$synthesis_agent" "$synthesis_input" | jq -r '.response.message // empty' 2>/dev/null)"
+    if [[ -z "$reply" ]]; then
+      echo "synthesis returned no message" >&2
+      return 1
+    fi
+    echo "$reply"
   else
     echo "$handoff_json"
   fi
