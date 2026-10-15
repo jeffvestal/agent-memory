@@ -166,7 +166,7 @@ workflow_run() {
   done
 
   local payload
-  payload="$(jq -n --argjson input "$input_json" '{"input": $input}')"
+  payload="$(jq -n --argjson input "$input_json" '{"inputs": $input}')"
 
   local result
   result="$(_wf_curl POST "/api/workflows/workflow/${wf_id}/run" -d "$payload")"
