@@ -76,7 +76,7 @@ fallback_sync() {
 
       bulk_body+="{\"index\": {\"_index\": \"$index\", \"_id\": \"$doc_id\"}}"$'\n'
       bulk_body+="$doc"$'\n'
-      ((count++))
+      count=$((count + 1))
     done
 
     if [[ $count -eq 0 ]]; then
@@ -103,12 +103,12 @@ fallback_sync() {
         item_error="$(echo "$result" | jq ".items[$i].index.error // null")"
         if [[ "$item_error" == "null" ]]; then
           mv "$f" "$synced_dir/"
-          ((total_synced++))
+          total_synced=$((total_synced + 1))
         else
-          ((total_failed++))
+          total_failed=$((total_failed + 1))
           echo "Failed: $(basename "$f") — $item_error" >&2
         fi
-        ((i++))
+        i=$((i + 1))
       done
     fi
   done

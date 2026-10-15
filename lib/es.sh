@@ -9,10 +9,15 @@ es_check() {
     "$BRIDGE_ES_URL" 2>/dev/null
 }
 
-# Returns 0 if online, 1 if offline
+# Returns 0 if online, 1 if offline or auth fails.
+# Auth failures are reported separately so a rotated key isn't mistaken for an outage.
 es_online() {
   local code
   code="$(es_check)"
+  if [[ "$code" == "401" || "$code" == "403" ]]; then
+    echo "ES auth failed (HTTP $code) — BRIDGE_ES_API_KEY may be expired or rotated" >&2
+    return 1
+  fi
   [[ "$code" == "200" ]]
 }
 

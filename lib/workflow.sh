@@ -4,22 +4,25 @@
 # Manages KK automation workflows running serverlessly on Kibana.
 # Workflows run on Kibana even when the laptop is off.
 #
-# All requests use KIBANA_URL + BRIDGE_ES_API_KEY from .env.
+# Uses BRIDGE_KIBANA_URL (or KIBANA_URL) + BRIDGE_KIBANA_API_KEY (falls back to BRIDGE_ES_API_KEY).
 # Required headers: kbn-xsrf: true, x-elastic-internal-origin: Kibana
+# Single-workflow routes live under /api/workflows/workflow/{id} (Kibana 9.x);
+# executions under /api/workflows/executions/{id}. POST /api/workflows is create-only.
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 _wf_curl() {
   local method="$1" path="$2"
   shift 2
-  if [[ -z "${KIBANA_URL:-}" ]]; then
-    echo "ERROR: KIBANA_URL not set — add to $BRIDGE_DIR/.env" >&2
+  local kibana_url="${KIBANA_URL:-${BRIDGE_KIBANA_URL:-}}"
+  if [[ -z "$kibana_url" ]]; then
+    echo "ERROR: BRIDGE_KIBANA_URL (or KIBANA_URL) not set — add to $BRIDGE_DIR/.env" >&2
     return 1
   fi
-  curl -s -X "$method" "${KIBANA_URL}${path}" \
-    -H "Authorization: ApiKey ${BRIDGE_ES_API_KEY}" \
+  curl -s -X "$method" "${kibana_url}${path}" \
+    -H "Authorization: ApiKey ${BRIDGE_KIBANA_API_KEY:-${BRIDGE_ES_API_KEY}}" \
     -H "kbn-xsrf: true" \
-    -H "x-elastic-internal-origin: Kibana" \
+    -H "x-elastic-internal-origin: ${BRIDGE_KIBANA_INTERNAL_ORIGIN:-Kibana}" \
     -H "Content-Type: application/json" \
     "$@"
 }
@@ -30,6 +33,22 @@ _wf_id_by_name() {
   _wf_curl GET "/api/workflows" 2>/dev/null \
     | jq -r --arg name "$name" '.results[] | select(.name == $name) | .id' \
     | head -1
+}
+
+# Replace an existing workflow's YAML. Prints the updated id on success.
+_wf_put_yaml() {
+  local wf_id="$1" yaml="$2" result
+  result="$(_wf_curl PUT "/api/workflows/workflow/${wf_id}" \
+    -d "$(jq -n --arg y "$yaml" '{yaml: $y}')")"
+  if [[ "$(echo "$result" | jq -r '.id // empty')" != "$wf_id" ]]; then
+    echo "$result" | jq . >&2
+    return 1
+  fi
+  if [[ "$(echo "$result" | jq -r '.valid')" != "true" ]]; then
+    echo "WARNING: $wf_id saved but invalid:" >&2
+    echo "$result" | jq '.validationErrors' >&2
+  fi
+  echo "$wf_id"
 }
 
 # Resolve arg: if starts with "workflow-" treat as ID, else look up by name
@@ -80,15 +99,8 @@ workflow_deploy() {
 
   local result
   if [[ -n "$existing_id" ]]; then
-    # Update: POST with id in payload (PUT /api/workflows/{id} returns 404)
-    local update_payload
-    update_payload="$(jq -n --arg id "$existing_id" --arg yaml "$yaml_content" '{"workflows": [{"id": $id, "yaml": $yaml}]}')"
-    result="$(_wf_curl POST "/api/workflows" -d "$update_payload")"
-    local updated_id
-    updated_id="$(echo "$result" | jq -r '.created[0].id // empty')"
-    if [[ -z "$updated_id" ]]; then
-      echo "ERROR updating $yaml_file:" >&2
-      echo "$result" | jq . >&2
+    if ! _wf_put_yaml "$existing_id" "$yaml_content" >/dev/null; then
+      echo "ERROR updating $yaml_file" >&2
       return 1
     fi
     echo "Updated: $existing_id ($name)"
@@ -157,9 +169,9 @@ workflow_run() {
   payload="$(jq -n --argjson input "$input_json" '{"input": $input}')"
 
   local result
-  result="$(_wf_curl POST "/api/workflows/${wf_id}/run" -d "$payload")"
+  result="$(_wf_curl POST "/api/workflows/workflow/${wf_id}/run" -d "$payload")"
   local exec_id
-  exec_id="$(echo "$result" | jq -r '.id // empty')"
+  exec_id="$(echo "$result" | jq -r '.workflowExecutionId // .id // empty')"
   if [[ -z "$exec_id" ]]; then
     echo "ERROR triggering workflow:" >&2
     echo "$result" | jq . >&2
@@ -176,18 +188,19 @@ workflow_status() {
     return 1
   fi
   local result
-  result="$(_wf_curl GET "/api/workflowExecutions/${exec_id}")"
+  result="$(_wf_curl GET "/api/workflows/executions/${exec_id}")"
   local status
   status="$(echo "$result" | jq -r '.status // "unknown"')"
   echo "Status: $status"
   echo "$result" | jq '{
     id,
-    workflow_id,
+    workflowId,
     status,
-    started_at,
-    completed_at,
-    duration_ms,
-    steps: (.steps // {} | to_entries | map({step: .key, status: .value.status}) )
+    startedAt,
+    finishedAt,
+    duration,
+    error: (.error.message // null),
+    steps: [(.stepExecutions // [])[] | {step: .stepId, status, error: (.error.message // null)}]
   }'
 }
 
@@ -200,7 +213,7 @@ workflow_delete() {
   local wf_id
   wf_id="$(_wf_resolve "$name_or_id")" || return 1
   local result status_code
-  result="$(_wf_curl DELETE "/api/workflows/${wf_id}")"
+  result="$(_wf_curl DELETE "/api/workflows/workflow/${wf_id}")"
   status_code="$(echo "$result" | jq -r '.statusCode // 200')"
   if [[ "$status_code" != "200" && "$status_code" != "204" ]]; then
     echo "ERROR deleting $wf_id (HTTP $status_code):" >&2
@@ -251,12 +264,8 @@ workflow_enable() {
   yaml="$(echo "$current" | jq -r '.yaml')"
   name="$(echo "$current" | jq -r '.name')"
   new_yaml="$(echo "$yaml" | sed 's/^enabled: false/enabled: true/')"
-  payload="$(jq -n --arg id "$wf_id" --arg y "$new_yaml" '{"workflows": [{"id": $id, "yaml": $y}]}')"
-  result="$(_wf_curl POST "/api/workflows" -d "$payload")"
-  updated_id="$(echo "$result" | jq -r '.created[0].id // empty')"
-  if [[ -z "$updated_id" ]]; then
-    echo "ERROR enabling workflow:" >&2
-    echo "$result" | jq . >&2
+  if ! _wf_put_yaml "$wf_id" "$new_yaml" >/dev/null; then
+    echo "ERROR enabling workflow" >&2
     return 1
   fi
   echo "Enabled: $wf_id ($name)"
@@ -280,12 +289,8 @@ workflow_disable() {
   yaml="$(echo "$current" | jq -r '.yaml')"
   name="$(echo "$current" | jq -r '.name')"
   new_yaml="$(echo "$yaml" | sed 's/^enabled: true/enabled: false/')"
-  payload="$(jq -n --arg id "$wf_id" --arg y "$new_yaml" '{"workflows": [{"id": $id, "yaml": $y}]}')"
-  result="$(_wf_curl POST "/api/workflows" -d "$payload")"
-  updated_id="$(echo "$result" | jq -r '.created[0].id // empty')"
-  if [[ -z "$updated_id" ]]; then
-    echo "ERROR disabling workflow:" >&2
-    echo "$result" | jq . >&2
+  if ! _wf_put_yaml "$wf_id" "$new_yaml" >/dev/null; then
+    echo "ERROR disabling workflow" >&2
     return 1
   fi
   echo "Disabled: $wf_id ($name)"

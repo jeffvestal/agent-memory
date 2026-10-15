@@ -163,6 +163,15 @@ mem_recall() {
         }')"
       ;;
     hybrid)
+      # DECAY() needs a time_duration (hours/minutes); "45d"/"45 days" parse as
+      # keyword/date_period and fail. Convert the window (Nd, Nw, Nh) to hours.
+      local decay_window="${BRIDGE_MEMORY_DECAY_WINDOW:-45d}" decay_hours
+      case "$decay_window" in
+        *d) decay_hours=$(( ${decay_window%d} * 24 )) ;;
+        *w) decay_hours=$(( ${decay_window%w} * 168 )) ;;
+        *h) decay_hours="${decay_window%h}" ;;
+        *)  decay_hours=1080 ;;
+      esac
       local esql_query
       esql_query="$(cat <<ESQL
 FROM ${IDX_MEMORY} METADATA _id, _score, _index
@@ -178,7 +187,7 @@ FROM ${IDX_MEMORY} METADATA _id, _score, _index
     | SORT _score DESC | LIMIT 50
 )
 | FUSE
-| EVAL final_score = _score * DECAY(created_at, NOW(), "${BRIDGE_MEMORY_DECAY_WINDOW}")
+| EVAL final_score = _score * DECAY(created_at, NOW(), ${decay_hours} hours)
 | EVAL display = COALESCE(title, SUBSTRING(content, 1, 80))
 | SORT final_score DESC | LIMIT ${limit}
 | KEEP memory_id, type, display, access_scope, agent
