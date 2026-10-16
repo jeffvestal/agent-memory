@@ -87,9 +87,11 @@ memory_sync() {
     local title="" type="observation" description=""
     if [[ "$content" =~ ^--- ]]; then
       title="$(echo "$content" | sed -n 's/^name: *//p' | head -1 || true)"
-      type="$(echo "$content" | sed -n 's/^type: *//p' | head -1 || true)"
-      description="$(echo "$content" | sed -n 's/^description: *//p' | head -1 || true)"
-      content="$(echo "$content" | sed '1,/^---$/d' | sed '1,/^---$/d')"
+      # type may be top-level or nested under metadata: (current Claude memory format)
+      type="$(echo "$content" | sed -n 's/^ *type: *//p' | head -1 || true)"
+      description="$(echo "$content" | sed -n 's/^description: *//p' | head -1 | sed 's/^"//; s/"$//' || true)"
+      # strip only the frontmatter block; keep any later --- in the body
+      content="$(echo "$content" | awk 'NR==1 && /^---$/ {fm=1; next} fm && /^---$/ {fm=0; next} !fm')"
     fi
 
     [[ -z "$title" ]] && title="$filename"
