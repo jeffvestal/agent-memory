@@ -257,6 +257,7 @@ ESQL
     .values[] |
     "[\(.[2])@\(.[7] // "unknown")] \(.[3]) | status: \(.[4]) | priority: \(.[5]) | updated: \(.[6][:10]) | id: \(.[1])"
   '
+  recall_log "bridge-graph-search" "$query" "$(echo "$result" | jq -c '[.values[] | {id: .[1], index: (.[7] // "unknown"), title: .[3]}]')"
 }
 
 

@@ -94,3 +94,21 @@ es_count() {
   result="$(es_request POST "/${index}/_count" '{"query":{"match_all":{}}}')"
   echo "$result" | jq -r '.count // 0'
 }
+
+# Log which memories a recall returned, so "what memory is actually used" is measurable.
+# Fire-and-forget: never slows or fails the recall itself. Disable with BRIDGE_RECALL_LOG=0.
+# Usage: recall_log <channel> <query> <hits_json: [{"id":..,"index":..}, ...] in rank order>
+recall_log() {
+  [[ "${BRIDGE_RECALL_LOG:-1}" == "0" ]] && return 0
+  local doc
+  doc="$(jq -nc --arg ch "$1" --arg q "$2" --argjson hits "${3:-[]}" \
+    --arg agent "${BRIDGE_AGENT_ID:-}" --arg m "${BRIDGE_MACHINE:-$(hostname -s)}" \
+    --arg sid "${CLAUDE_SESSION_ID:-}" '
+    { "@timestamp": (now | todate), channel: $ch, query: $q, agent: $agent, machine: $m,
+      session_id: $sid, n_hits: ($hits | length), hit_ids: [$hits[].id],
+      hits: ($hits | to_entries | map(.value + {rank: (.key + 1)})) }' 2>/dev/null)" || return 0
+  ( curl -s -m 3 -o /dev/null -X POST "${BRIDGE_ES_URL}/${IDX_RECALL:-memory-recall-events}/_doc" \
+      -H "Authorization: ApiKey $BRIDGE_ES_API_KEY" -H "Content-Type: application/json" \
+      -d "$doc" >/dev/null 2>&1 & ) 2>/dev/null
+  return 0
+}

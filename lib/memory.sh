@@ -211,6 +211,7 @@ ESQL
     fi
     # KEEP order: memory_id[0], type[1], display[2], access_scope[3], agent[4]
     echo "$result" | jq -r '.values[] | "[\(.[1])] \(.[2]) (scope: \(.[3]), agent: \(.[4])) [\(.[0])]"'
+    recall_log "bridge-recall" "$query" "$(echo "$result" | jq -c '[.values[] | {id: .[0], index: "'"$IDX_MEMORY"'", title: .[2]}]')"
   else
     result="$(es_search "$IDX_MEMORY" "$search_body")"
     count="$(echo "$result" | jq '.hits.total.value // 0')"
@@ -219,6 +220,7 @@ ESQL
       return
     fi
     echo "$result" | jq -r '.hits.hits[]._source | "[\(.type)] \(.title // .content[:80]) (scope: \(.access_scope), agent: \(.agent)) [\(.memory_id)]"'
+    recall_log "bridge-recall" "$query" "$(echo "$result" | jq -c '[.hits.hits[]._source | {id: .memory_id, index: "'"$IDX_MEMORY"'", title: (.title // .content[:80])}]')"
   fi
 }
 
