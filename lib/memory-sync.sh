@@ -14,10 +14,16 @@ _memory_dirs() {
     echo "$BRIDGE_MEMORY_PATH"
     return
   fi
-  # Derive from current project path (Claude Code convention)
-  local cwd_slug
-  cwd_slug="$(pwd | tr '/' '-')"
-  echo "$HOME/.claude/projects/${cwd_slug}/memory"
+  # Derive from current project path (Claude Code convention). Current Claude Code replaces
+  # every non-alphanumeric char with "-" (ai-pulse_bot → ai-pulse-bot); older versions only
+  # replaced "/", so use that form when it's the one on disk.
+  local base="$HOME/.claude/projects" cwd_slug legacy_slug
+  cwd_slug="$(pwd | sed 's/[^A-Za-z0-9]/-/g')"
+  legacy_slug="$(pwd | tr '/' '-')"
+  if [[ ! -d "$base/$cwd_slug/memory" && -d "$base/$legacy_slug/memory" ]]; then
+    cwd_slug="$legacy_slug"
+  fi
+  echo "$base/${cwd_slug}/memory"
 }
 
 # Memory wall: true if a project dir belongs to a space this agent must never sync.
