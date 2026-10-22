@@ -28,7 +28,7 @@ Create a `.env` file (see `.env.example`) with:
 
 # Memory
 bridge remember <type> <content> [--title T] [--tags t1,t2] [--scope shared] [--category C]
-bridge recall <query> [--type X] [--limit N] [--semantic|--keyword|--hybrid]
+bridge recall <query> [--type X] [--limit N] [--semantic|--keyword|--hybrid] [--json]  # --json: [{memory_id,type,title,access_scope,agent,score}]
 bridge forget <memory_id>
 bridge sync-memories [--force]   # Sync ~/.claude/projects/.../memory/*.md to ES
 
@@ -108,7 +108,7 @@ fallback/                 — offline queue; synced files go to .synced/
 
 **Deterministic IDs**: Entity IDs use `{agent}-{type}-{slug}` format; memory-sync IDs use `mem-migrate-{md5hash}`. This ensures re-indexing is idempotent.
 
-**Auto-memory sync**: `bridge sync-memories` reads `~/.claude/projects/<cwd-slug>/memory/*.md`, hashes each file, and only re-indexes changed files. `--force` bypasses the hash check.
+**Auto-memory sync**: `bridge sync-memories` reads `~/.claude/projects/<cwd-slug>/memory/*.md`, hashes each file, and only re-indexes changed files. `--force` bypasses the hash check. It refuses to run in a project excluded by `$BRIDGE_DIR/config/memory-scope.json` (`exclude.path_prefixes`, `exclude.git_remotes` as exact `owner/repo`); that's how one agent's hooks stay out of another agent's space. No config file means no exclusions.
 
 **Task state machine**: `created → in_progress → completed | failed | suspended`. Each transition logs a session event and updates `.sync-state/current-task`.
 

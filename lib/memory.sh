@@ -75,12 +75,14 @@ mem_remember() {
 }
 
 # Search memories
-# Usage: mem_recall <query> [--type X] [--category X] [--limit 5] [--semantic|--keyword|--hybrid]
+# Usage: mem_recall <query> [--type X] [--category X] [--limit 5] [--semantic|--keyword|--hybrid] [--json]
+#   --json  print a JSON array [{memory_id, type, title, access_scope, agent, score}] in rank order
+#           (score = fused+decayed for hybrid, _score otherwise). Exits 1 when ES is unreachable.
 mem_recall() {
   local query="$1"
   shift
 
-  local type_filter="" category_filter="" limit=5 mode="hybrid"
+  local type_filter="" category_filter="" limit=5 mode="hybrid" json_out=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --type) type_filter="$2"; shift 2 ;;
@@ -89,6 +91,7 @@ mem_recall() {
       --semantic) mode="semantic"; shift ;;
       --keyword) mode="keyword"; shift ;;
       --hybrid) mode="hybrid"; shift ;;
+      --json) json_out=1; shift ;;
       *) shift ;;
     esac
   done
@@ -101,6 +104,10 @@ mem_recall() {
   [[ -n "$category_filter" ]] && category_clause="| WHERE category == \"${category_filter}\""
 
   if ! es_online; then
+    if [[ "$json_out" == "1" ]]; then
+      echo "ES offline — recall unavailable" >&2
+      return 1
+    fi
     echo "Offline — searching fallback memory"
     fallback_search_memory "$query"
     return
@@ -190,7 +197,7 @@ FROM ${IDX_MEMORY} METADATA _id, _score, _index
 | EVAL final_score = _score * DECAY(created_at, NOW(), ${decay_hours} hours)
 | EVAL display = COALESCE(title, SUBSTRING(content, 1, 80))
 | SORT final_score DESC | LIMIT ${limit}
-| KEEP memory_id, type, display, access_scope, agent
+| KEEP memory_id, type, display, access_scope, agent, final_score
 ESQL
 )"
       ;;
@@ -205,21 +212,33 @@ ESQL
       return 1
     fi
     count="$(echo "$result" | jq '.values | length')"
-    if [[ "$count" == "0" ]]; then
+    if [[ "$json_out" == "1" ]]; then
+      echo "$result" | jq -c '[.values[] | {memory_id: .[0], type: .[1], title: .[2], access_scope: .[3], agent: .[4], score: .[5]}]'
+    elif [[ "$count" == "0" ]]; then
       echo "No memories found for: $query"
       return
+    else
+      # KEEP order: memory_id[0], type[1], display[2], access_scope[3], agent[4], final_score[5]
+      echo "$result" | jq -r '.values[] | "[\(.[1])] \(.[2]) (scope: \(.[3]), agent: \(.[4])) [\(.[0])]"'
     fi
-    # KEEP order: memory_id[0], type[1], display[2], access_scope[3], agent[4]
-    echo "$result" | jq -r '.values[] | "[\(.[1])] \(.[2]) (scope: \(.[3]), agent: \(.[4])) [\(.[0])]"'
+    [[ "$count" == "0" ]] && return
     recall_log "bridge-recall" "$query" "$(echo "$result" | jq -c '[.values[] | {id: .[0], index: "'"$IDX_MEMORY"'", title: .[2]}]')"
   else
     result="$(es_search "$IDX_MEMORY" "$search_body")"
+    if echo "$result" | jq -e '.error' > /dev/null 2>&1; then
+      echo "ES error: $(echo "$result" | jq -r '.error.reason // .error.type')" >&2
+      return 1
+    fi
     count="$(echo "$result" | jq '.hits.total.value // 0')"
-    if [[ "$count" == "0" ]]; then
+    if [[ "$json_out" == "1" ]]; then
+      echo "$result" | jq -c '[.hits.hits[] | {memory_id: ._source.memory_id, type: ._source.type, title: (._source.title // ._source.content[:80]), access_scope: ._source.access_scope, agent: ._source.agent, score: ._score}]'
+    elif [[ "$count" == "0" ]]; then
       echo "No memories found for: $query"
       return
+    else
+      echo "$result" | jq -r '.hits.hits[]._source | "[\(.type)] \(.title // .content[:80]) (scope: \(.access_scope), agent: \(.agent)) [\(.memory_id)]"'
     fi
-    echo "$result" | jq -r '.hits.hits[]._source | "[\(.type)] \(.title // .content[:80]) (scope: \(.access_scope), agent: \(.agent)) [\(.memory_id)]"'
+    [[ "$count" == "0" ]] && return
     recall_log "bridge-recall" "$query" "$(echo "$result" | jq -c '[.hits.hits[]._source | {id: .memory_id, index: "'"$IDX_MEMORY"'", title: (.title // .content[:80])}]')"
   fi
 }

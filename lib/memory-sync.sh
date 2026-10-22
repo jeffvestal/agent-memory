@@ -20,6 +20,30 @@ _memory_dirs() {
   echo "$HOME/.claude/projects/${cwd_slug}/memory"
 }
 
+# Memory wall: true if a project dir belongs to a space this agent must never sync.
+# Reads $BRIDGE_DIR/config/memory-scope.json when present (no file = no exclusions):
+#   {"exclude": {"path_prefixes": ["~/repos/personal-projects/"], "git_remotes": ["jeffvestal/nat"]}}
+# A git remote matches on the exact owner/repo (".git" suffix ignored).
+_memory_scope_excluded() {
+  local dir="$1" scope_file="$BRIDGE_DIR/config/memory-scope.json"
+  [[ -f "$scope_file" ]] || return 1
+  local top remote prefix pat
+  top="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null || echo "$dir")"
+  while IFS= read -r prefix; do
+    [[ -z "$prefix" ]] && continue
+    prefix="${prefix/#\~/$HOME}"
+    [[ "$top/" == "${prefix%/}/"* ]] && return 0
+  done < <(jq -r '.exclude.path_prefixes[]?' "$scope_file" 2>/dev/null)
+  remote="$(git -C "$top" remote get-url origin 2>/dev/null || true)"
+  remote="${remote%.git}"
+  [[ -z "$remote" ]] && return 1
+  while IFS= read -r pat; do
+    [[ -z "$pat" ]] && continue
+    [[ "$remote" == *"/$pat" || "$remote" == *":$pat" ]] && return 0
+  done < <(jq -r '.exclude.git_remotes[]?' "$scope_file" 2>/dev/null)
+  return 1
+}
+
 # Hash a file for change detection
 _file_hash() {
   md5 -q "$1" 2>/dev/null || md5sum "$1" 2>/dev/null | cut -d' ' -f1
@@ -49,6 +73,11 @@ memory_sync() {
   mkdir -p "$SYNC_STATE_DIR"
   local hash_file="$SYNC_STATE_DIR/${BRIDGE_AGENT_ID}-hashes"
   touch "$hash_file"
+
+  if _memory_scope_excluded "$(pwd)"; then
+    $quiet || echo "Skipping memory sync — $(pwd) is outside this agent's memory scope (config/memory-scope.json)"
+    return
+  fi
 
   local mem_dir
   mem_dir="$(_memory_dirs)"
