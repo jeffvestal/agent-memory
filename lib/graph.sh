@@ -641,6 +641,16 @@ ESQL
 
 
 # ── gen-handoff ───────────────────────────────────────────────────────────────
+# Sessions active in the last N hours, as an ES|QL response ({columns, values}).
+# Default source is the sessions index. An overlay sourced after this file can
+# redefine graph_handoff_sessions to read sessions from elsewhere; it must always
+# print JSON ({} when it has nothing).
+graph_handoff_sessions() {
+  local hours="$1"
+  es_request POST "/_query" \
+    "{\"query\": \"FROM ${IDX_SESSIONS}\n| WHERE timestamp >= NOW() - ${hours} hours\n| SORT timestamp DESC\n| KEEP session_id, action, summary, files_touched, timestamp\n| LIMIT 20\"}"
+}
+
 # Usage: gen_handoff [--hours 8] [--synthesize]
 #   --synthesize  pipe ES data through BRIDGE_SYNTHESIS_AGENT for a narrative summary;
 #                 requires KIBANA_URL and BRIDGE_SYNTHESIS_AGENT in .env
@@ -674,10 +684,10 @@ ESQL
   local recent_result
   recent_result="$(es_request POST "/_query" "{\"query\": $(jq -Rs '.' <<< "$esql_recent")}")"
 
-  # Active sessions from agent-sessions in same window
+  # Active sessions in the same window
   local sessions_result
-  sessions_result="$(es_request POST "/_query" \
-    "{\"query\": \"FROM ${IDX_SESSIONS}\n| WHERE timestamp >= NOW() - ${hours} hours\n| SORT timestamp DESC\n| KEEP session_id, action, summary, files_touched, timestamp\n| LIMIT 20\"}")"
+  sessions_result="$(graph_handoff_sessions "$hours")"
+  jq -e . >/dev/null 2>&1 <<< "$sessions_result" || sessions_result='{}'
 
   # Active blockers
   local blockers_result

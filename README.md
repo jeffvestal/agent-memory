@@ -214,6 +214,8 @@ bridge graph semantic-diff 2026-04-01 2026-04-20
 
 Structured JSON context for handoffs: entities updated in the window, active blockers, recent session logs. `--synthesize` pipes through `BRIDGE_SYNTHESIS_AGENT` for a narrative paragraph.
 
+Sessions come from `graph_handoff_sessions <hours>`, which by default queries the sessions index. An overlay sourced after `lib/graph.sh` can redefine it to read sessions from another source. It must print an ES|QL-shaped response (`{columns, values}`), or `{}` when it has nothing.
+
 ```bash
 bridge graph gen-handoff --hours 8
 bridge graph gen-handoff --hours 168 --synthesize
