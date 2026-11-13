@@ -79,6 +79,28 @@ es_update() {
   es_request POST "/${index}/_update/${doc_id}" "{\"doc\": $body}"
 }
 
+# Partial update that creates the doc if missing. Fields not in <partial_json> are kept,
+# so writers that own content (memory-sync) don't wipe fields owned by others (status).
+# Usage: es_upsert <index> <doc_id> <partial_json>
+es_upsert() {
+  local index="$1" doc_id="$2" body="$3"
+  es_request POST "/${index}/_update/${doc_id}" "{\"doc\": $body, \"doc_as_upsert\": true}"
+}
+
+# Delete a document by ID
+# Usage: es_delete <index> <doc_id>
+es_delete() {
+  local index="$1" doc_id="$2"
+  es_request DELETE "/${index}/_doc/${doc_id}" ""
+}
+
+# ES|QL query with named params (no string escaping needed)
+# Usage: es_esql <query> <params_json: [{"name": "value"}, ...]>
+es_esql() {
+  local query="$1" params="${2:-[]}"
+  es_request POST "/_query" "$(jq -nc --arg q "$query" --argjson p "$params" '{query: $q, params: $p}')"
+}
+
 # Bulk API
 # Usage: es_bulk <ndjson_body>
 es_bulk() {

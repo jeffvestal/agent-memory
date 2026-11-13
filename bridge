@@ -13,6 +13,7 @@ source "$BRIDGE_DIR/lib/es.sh"
 source "$BRIDGE_DIR/lib/fallback.sh"
 source "$BRIDGE_DIR/lib/messages.sh"
 source "$BRIDGE_DIR/lib/memory.sh"
+source "$BRIDGE_DIR/lib/consolidate.sh"
 source "$BRIDGE_DIR/lib/sessions.sh"
 source "$BRIDGE_DIR/lib/memory-sync.sh"
 source "$BRIDGE_DIR/lib/tasks.sh"
@@ -33,8 +34,13 @@ MESSAGES
 
 MEMORY
   bridge remember <type> <content> [--title T] [--tags t1,t2] [--scope shared] [--category C]
-  bridge recall <query> [--type X] [--category X] [--limit N] [--semantic|--keyword|--hybrid]
-  bridge forget <memory_id> [--superseded-by ID]
+                  [--immutable] [--no-consolidate] [--dry-run]
+                  Fact types are checked against similar memories: a replaced fact is marked
+                  superseded, a duplicate merged (LLM judge via EIS; --dry-run shows verdicts only)
+  bridge recall <query> [--type X] [--category X] [--limit N] [--semantic|--keyword|--hybrid] [--json] [--all]
+                  Active memories only; --all adds superseded/merged/retired history
+  bridge forget <memory_id> [--superseded-by ID | --purge] [--reason R]
+                  Default retires (hidden, kept); --purge deletes it and its older versions
 
 SESSIONS
   bridge log <action> <summary> [--tags t1,t2] [--files f1,f2]

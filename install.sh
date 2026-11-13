@@ -160,8 +160,30 @@ _create_index "agent-memory" "$(jq -n \
     "source":           {"type": "keyword"},
     "created_at":       {"type": "date"},
     "updated_at":       {"type": "date"},
-    "access_scope":     {"type": "keyword"}
+    "access_scope":     {"type": "keyword"},
+    "status":           {"type": "keyword"},
+    "superseded_by":    {"type": "keyword"},
+    "merged_into":      {"type": "keyword"},
+    "status_at":        {"type": "date"},
+    "status_reason":    {"type": "text"},
+    "immutable":        {"type": "boolean"}
   }}}')"
+
+_create_index "memory-consolidation-log" '{"mappings": {"properties": {
+    "@timestamp":    {"type": "date"},
+    "agent":         {"type": "keyword"},
+    "machine":       {"type": "keyword"},
+    "new_id":        {"type": "keyword"},
+    "new_title":     {"type": "text"},
+    "new_type":      {"type": "keyword"},
+    "candidate_ids": {"type": "keyword"},
+    "model":         {"type": "keyword"},
+    "latency_ms":    {"type": "long"},
+    "dry_run":       {"type": "boolean"},
+    "error":         {"type": "text"},
+    "verdicts":      {"properties": {"id": {"type": "keyword"}, "label": {"type": "keyword"}, "reason": {"type": "text"}}},
+    "actions":       {"properties": {"target": {"type": "keyword"}, "action": {"type": "keyword"}}}
+  }}}'
 
 _create_index "agent-sessions" '{
   "mappings": {"properties": {

@@ -168,8 +168,9 @@ memory_sync() {
       }')"
 
     local result
-    result="$(es_index "$IDX_MEMORY" "$mem_id" "$doc" 2>/dev/null)"
-    if echo "$result" | jq -e '.result == "created" or .result == "updated"' > /dev/null 2>&1; then
+    # Upsert, not PUT: a file edit must not wipe status/superseded_by set by consolidation.
+    result="$(es_upsert "$IDX_MEMORY" "$mem_id" "$doc" 2>/dev/null)"
+    if echo "$result" | jq -e '.result == "created" or .result == "updated" or .result == "noop"' > /dev/null 2>&1; then
       synced=$((synced + 1))
       if grep -q "^${filename}:" "$hash_file" 2>/dev/null; then
         sed -i '' "s/^${filename}:.*/${filename}:${current_hash}/" "$hash_file"

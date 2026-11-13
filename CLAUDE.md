@@ -27,9 +27,9 @@ Create a `.env` file (see `.env.example`) with:
 ./bridge sync         # Flush queued offline writes to ES
 
 # Memory
-bridge remember <type> <content> [--title T] [--tags t1,t2] [--scope shared] [--category C]
-bridge recall <query> [--type X] [--limit N] [--semantic|--keyword|--hybrid] [--json]  # --json: [{memory_id,type,title,access_scope,agent,score}]
-bridge forget <memory_id>
+bridge remember <type> <content> [--title T] [--tags t1,t2] [--scope shared] [--category C] [--immutable] [--no-consolidate] [--dry-run]
+bridge recall <query> [--type X] [--limit N] [--semantic|--keyword|--hybrid] [--json] [--all]  # --json: [{memory_id,type,title,access_scope,agent,score,status}]
+bridge forget <memory_id> [--superseded-by ID | --purge] [--reason R]
 bridge sync-memories [--force]   # Sync ~/.claude/projects/.../memory/*.md to ES
 
 # Messages
@@ -71,7 +71,8 @@ bridge (CLI entrypoint)
        ├── config.sh       — loads .env, sets defaults, validates required vars
        ├── es.sh           — curl wrapper: es_request/index/search/update/bulk/get/count
        ├── fallback.sh     — offline queue to fallback/{agent}/outbox/, sync via es_bulk
-       ├── memory.sh       — remember/recall/forget → agent-memory index
+       ├── memory.sh       — remember/recall/forget → agent-memory index (status lifecycle)
+       ├── consolidate.sh  — write-time supersede/merge judge (EIS completion) → memory-consolidation-log
        ├── messages.sh     — send/check/reply/ack → agent-messages index
        ├── tasks.sh        — task lifecycle + heartbeat → agent-tasks / agent-status indices
        ├── sessions.sh     — log/history → agent-sessions index
@@ -93,6 +94,7 @@ fallback/                 — offline queue; synced files go to .synced/
 | Index | Purpose |
 |---|---|
 | `agent-memory` | Persistent memories (semantic + keyword hybrid) |
+| `memory-consolidation-log` | One doc per consolidation judgment: candidates, verdicts, actions, model, latency |
 | `agent-messages` | Inter-agent message queue |
 | `agent-tasks` | Task lifecycle tracking |
 | `agent-sessions` | Session/action history |
@@ -109,6 +111,10 @@ fallback/                 — offline queue; synced files go to .synced/
 **Deterministic IDs**: Entity IDs use `{agent}-{type}-{slug}` format; memory-sync IDs use `mem-migrate-{md5hash}`. This ensures re-indexing is idempotent.
 
 **Auto-memory sync**: `bridge sync-memories` reads `~/.claude/projects/<cwd-slug>/memory/*.md`, hashes each file, and only re-indexes changed files. `--force` bypasses the hash check. It refuses to run in a project excluded by `$BRIDGE_DIR/config/memory-scope.json` (`exclude.path_prefixes`, `exclude.git_remotes` as exact `owner/repo`); that's how one agent's hooks stay out of another agent's space. No config file means no exclusions.
+
+**Memory lifecycle**: `status` is `active` (or absent on docs older than the field) → `superseded` (with `superseded_by`) | `merged` (with `merged_into`) | `retired`. Recall returns active only; `--all` adds the history. Nothing but `forget --purge` deletes, and `--purge` follows `superseded_by`/`merged_into` back through every older version so a forgotten fact can't resurface from a stale copy. `memory-sync` writes with `doc_as_upsert` so a file edit never wipes a status.
+
+**Write-time consolidation** (`lib/consolidate.sh`): `remember` of a fact-like type (`BRIDGE_CONSOLIDATE_TYPES`, default `decision lesson reference feedback project user preference fact`; episodic types like `handoff` are skipped) pulls the 5 closest active, non-immutable memories of the same agent (ES|QL FORK/FUSE: BM25 + `content_semantic`), then asks an EIS completion endpoint (`BRIDGE_CONSOLIDATE_INFERENCE_ID`, default `.anthropic-claude-5.5-sonnet-completion` per the KK rule that memory LLM work is never below Sonnet 4.6, ~5 s) to label each `supersedes | absorbs | duplicate | distinct`. The prompt is deliberately conservative: retiring a true memory is worse than keeping a stale one, so "considering X" or a refinement stays `distinct`. A write that would retire more than `BRIDGE_CONSOLIDATE_MAX_ACTIONS` (3) memories applies none. Every judgment, `distinct` included, goes to `memory-consolidation-log` for review. `--dry-run` prints the verdicts and writes nothing; `--immutable` keeps a memory out of it for good; `BRIDGE_CONSOLIDATE=0` turns it off. A memory written in the last ~1 s may not be searchable yet, so back-to-back writes can miss each other.
 
 **Task state machine**: `created → in_progress → completed | failed | suspended`. Each transition logs a session event and updates `.sync-state/current-task`.
 
