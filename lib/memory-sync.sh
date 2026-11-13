@@ -127,6 +127,12 @@ memory_sync() {
       description="$(echo "$content" | sed -n 's/^description: *//p' | head -1 | sed 's/^"//; s/"$//' || true)"
       # strip only the frontmatter block; keep any later --- in the body
       content="$(echo "$content" | awk 'NR==1 && /^---$/ {fm=1; next} fm && /^---$/ {fm=0; next} !fm')"
+      # Lead the body with the one-line description: it's the densest summary of the memory,
+      # and the slug-style `name` (e.g. reference_gcp_project_separation) is useless to BM25.
+      # agent-bridge scripts/memory-health.py sync_body() must build the same string.
+      if [[ -n "$description" ]]; then
+        content="${description}"$'\n\n'"$(printf '%s\n' "$content" | sed '/[^[:space:]]/,$!d')"
+      fi
     fi
 
     [[ -z "$title" ]] && title="$filename"
